@@ -1,0 +1,13 @@
+{
+  "name": "bot-agua-viva-surco",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp para Comunidad Cristiana Agua Viva - Sede Surco",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "express": "^4.21.0"
+  }
+}
