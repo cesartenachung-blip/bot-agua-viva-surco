@@ -4,10 +4,10 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// ==== Variables de entorno (configúralas en tu hosting) ====
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;        // inventas tú una palabra clave
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;    // token de acceso de Meta
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;  // Phone Number ID de Meta
+// ==== Variables de entorno ====
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
 const GRAPH_URL = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
 
@@ -22,17 +22,27 @@ const answers = {
     '📍 *Sede Surco:* Víctor Plascencia 181 (Ref. Estación Jorge Chávez). Pastores: Diego y Brigitte García.',
   reset:
     '🔥 *Próximo Reset publicado:*\nCamp Next (12 a 17 años): 31 de julio al 2 de agosto.\nSiguiente: Reset Mujeres (26 a 65 años), 7 al 9 de agosto.\n(Cronograma sujeto a confirmación, ver ccaguaviva.org/reset)',
-  saludo:
-    '🙌 ¡Bienvenido(a) a Agua Viva Surco! Que la paz y las bendiciones de Dios estén contigo hoy. ¿En qué puedo ayudarte?\n\n*NEXT* · *Familiar* · *Intercesión* · *Escuela de líderes* · *Dirección* · *Reset* · *Grupo de conexión*',
+  saludo: '🙌 ¡Bienvenido(a) a Agua Viva Surco! Que la paz y las bendiciones de Dios estén contigo hoy.',
   despedida:
     '🙏 Gracias a ti. Que el Señor te acompañe y te bendiga en todo lo que emprendas hoy. ¡Esperamos verte pronto en Agua Viva Surco!',
-  ayuda:
-    'Puedo darte info sobre: *NEXT*, *Familiar*, *Intercesión*, *Escuela de líderes*, *Dirección*, *Reset* o *Grupo de conexión*. Escribe cualquiera de esas palabras.',
+  ayuda: 'Toca el botón de abajo para ver las opciones disponibles 👇',
 };
+
+// Filas del menú (id -> título y descripción que se ven en la lista de WhatsApp)
+const menuRows = [
+  { id: 'next', title: 'NEXT', description: 'Reunión de jóvenes' },
+  { id: 'familiar', title: 'Familiar', description: 'Servicio dominical' },
+  { id: 'intercesion', title: 'Intercesión', description: 'Horario de oración' },
+  { id: 'lideres', title: 'Escuela de líderes', description: 'Horarios de clases' },
+  { id: 'direccion', title: 'Dirección', description: 'Ubicación de la sede' },
+  { id: 'reset', title: 'Reset', description: 'Próximo evento' },
+  { id: 'conexion', title: 'Grupo de conexión', description: '¿Ya tienes uno?' },
+];
 
 const keywords = [
   [/^(hola|buen[oa]s?\s?(d[ií]as|tardes|noches)|saludos|hey|qu[eé]\s?tal|dios te bendiga|paz de dios|bendiciones)/i, 'saludo'],
   [/gracias|chau|chao|bye|adi[oó]s|hasta luego|nos vemos/i, 'despedida'],
+  [/menu|opciones|ayuda/i, 'menu'],
   [/next/i, 'next'],
   [/famil/i, 'familiar'],
   [/domin/i, 'familiar'],
@@ -44,8 +54,6 @@ const keywords = [
 ];
 
 // ==== Estado de conversación por usuario (en memoria) ====
-// Para producción real con muchos usuarios, reemplaza este Map por una base
-// de datos (Redis, Postgres, etc.) para no perder el estado si el servidor reinicia.
 const sessions = new Map(); // wa_id -> { flow, tempName }
 
 function getSession(waId) {
@@ -57,11 +65,27 @@ function getSession(waId) {
 async function sendText(to, body) {
   await axios.post(
     GRAPH_URL,
+    { messaging_product: 'whatsapp', to, type: 'text', text: { body } },
+    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+  );
+}
+
+// ==== Envío del menú como lista interactiva ====
+async function sendMenu(to, bodyText) {
+  await axios.post(
+    GRAPH_URL,
     {
       messaging_product: 'whatsapp',
       to,
-      type: 'text',
-      text: { body },
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: bodyText },
+        action: {
+          button: 'Ver opciones',
+          sections: [{ title: 'Agua Viva Surco', rows: menuRows }],
+        },
+      },
     },
     { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
   );
@@ -90,13 +114,13 @@ async function sendYesNo(to, bodyText) {
   );
 }
 
-// ==== Lógica principal: decide qué responder ====
-async function handleMessage(waId, text, buttonId) {
+// ==== Lógica principal ====
+async function handleMessage(waId, text, interactiveId) {
   const session = getSession(waId);
   const val = (text || '').trim();
 
-  // Flujo activo: Grupo de Conexión - esperando Sí/No por botón
-  if (buttonId === 'si') {
+  // Respuesta de botones Sí/No (Grupo de conexión)
+  if (interactiveId === 'si') {
     session.flow = null;
     await sendText(
       waId,
@@ -104,9 +128,19 @@ async function handleMessage(waId, text, buttonId) {
     );
     return;
   }
-  if (buttonId === 'no') {
+  if (interactiveId === 'no') {
     session.flow = 'nombre';
     await sendText(waId, 'Con gusto te contactamos. Por favor escribe tus *nombres completos*:');
+    return;
+  }
+
+  // Selección desde el menú de lista
+  if (interactiveId === 'conexion') {
+    await sendYesNo(waId, '¿Tienes Grupo de Conexión?');
+    return;
+  }
+  if (interactiveId && answers[interactiveId]) {
+    await sendText(waId, answers[interactiveId]);
     return;
   }
 
@@ -130,28 +164,38 @@ async function handleMessage(waId, text, buttonId) {
     return;
   }
 
-  // Sin flujo activo: buscar palabra clave
+  // Texto libre: buscar palabra clave
   const match = keywords.find(([re]) => re.test(val));
   const key = match ? match[1] : null;
 
+  if (key === 'saludo') {
+    await sendText(waId, answers.saludo);
+    await sendMenu(waId, '¿En qué puedo ayudarte hoy?');
+    return;
+  }
+  if (key === 'menu') {
+    await sendMenu(waId, 'Elige una opción:');
+    return;
+  }
   if (key === 'conexion') {
     await sendYesNo(waId, '¿Tienes Grupo de Conexión?');
     return;
   }
+  if (key && answers[key]) {
+    await sendText(waId, answers[key]);
+    return;
+  }
 
-  await sendText(waId, answers[key] || answers.ayuda);
+  // No se reconoció nada: mostrar el menú
+  await sendText(waId, answers.ayuda);
+  await sendMenu(waId, 'Elige una opción:');
 }
 
-// ==== Verificación del Webhook (Meta la llama una sola vez al configurar) ====
+// ==== Verificación del Webhook ====
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
-  console.log('--- Verificación de webhook ---');
-  console.log('mode recibido:', JSON.stringify(mode));
-  console.log('token recibido:', JSON.stringify(token));
-  console.log('token esperado (env):', JSON.stringify(VERIFY_TOKEN));
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
@@ -161,7 +205,6 @@ app.get('/webhook', (req, res) => {
 
 // ==== Recepción de mensajes entrantes ====
 app.post('/webhook', async (req, res) => {
-  // Responde 200 de inmediato para que Meta no reintente el mismo evento
   res.sendStatus(200);
 
   try {
@@ -170,14 +213,18 @@ app.post('/webhook', async (req, res) => {
     const value = change?.value;
     const message = value?.messages?.[0];
 
-    if (!message) return; // puede ser un evento de "status" (entregado/leído), lo ignoramos
+    if (!message) return;
 
-    const waId = message.from; // número del usuario que escribió
+    const waId = message.from;
 
     if (message.type === 'text') {
       await handleMessage(waId, message.text.body, null);
-    } else if (message.type === 'interactive' && message.interactive?.button_reply) {
-      await handleMessage(waId, message.interactive.button_reply.title, message.interactive.button_reply.id);
+    } else if (message.type === 'interactive') {
+      if (message.interactive?.button_reply) {
+        await handleMessage(waId, message.interactive.button_reply.title, message.interactive.button_reply.id);
+      } else if (message.interactive?.list_reply) {
+        await handleMessage(waId, message.interactive.list_reply.title, message.interactive.list_reply.id);
+      }
     }
   } catch (err) {
     console.error('Error procesando mensaje:', err.response?.data || err.message);
