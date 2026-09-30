@@ -8,6 +8,7 @@ app.use(express.json());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const ADMIN_PHONE = process.env.ADMIN_PHONE; // tu número (o el del encargado), con código de país, sin '+' ni espacios. Ej: 51961871143
 
 const GRAPH_URL = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
 
@@ -161,6 +162,14 @@ async function handleMessage(waId, text, interactiveId) {
       waId,
       `¡Gracias, ${nombre}! 🙌 Ya registramos tus datos (${nombre} — ${val}) y muy pronto alguien de nuestro equipo te contactará para conectarte con un Grupo de Conexión. Dios te bendiga.`
     );
+
+    // Notifica al equipo (si configuraste ADMIN_PHONE)
+    if (ADMIN_PHONE) {
+      await sendText(
+        ADMIN_PHONE,
+        `📋 *Nuevo interesado en Grupo de Conexión*\nNombre: ${nombre}\nCelular: ${val}\nWhatsApp: ${waId}`
+      ).catch((e) => console.error('No se pudo notificar al admin:', e.response?.data || e.message));
+    }
     return;
   }
 
