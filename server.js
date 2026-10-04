@@ -15,7 +15,7 @@ const GRAPH_URL = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`
 // ==== Respuestas del bot ====
 const answers = {
   familiar:
-    '🕘 *Servicio Familiar* 🧑\u200d🧑\u200d🧒\u200d🧒\nDomingos:\n7:00 a.m.\n9:00 a.m.\n11:30 a.m. y\n6:00 p.m.',
+    '🕘 *Servicio Familiar* 🧑\u200d🧑\u200d🧒\u200d🧒\nDomingos:\n08:00 a.m.\n10:00 a.m.\n12:00 p.m.\n06:00 p.m.',
   next: '🕕 *NEXT (jóvenes):*\nSábados, 6:00 p.m.',
   intercesion: '🙏 *Intercesión:*\nSábado, 6:30 a.m.',
   lideres:
@@ -27,7 +27,19 @@ const answers = {
   saludo: '🙌 ¡Bienvenido(a) a Agua Viva Surco! Que la paz y las bendiciones de Dios estén contigo hoy.',
   despedida:
     '🙏 Gracias a ti. Que el Señor te acompañe y te bendiga en todo lo que emprendas hoy. ¡Esperamos verte pronto en Agua Viva Surco!',
+  finalizar:
+    '🙏 Gracias por escribirnos. Que Dios te bendiga y nos vemos pronto en Agua Viva Surco. Cuando quieras volver, escribe *Hola*.',
   ayuda: 'Toca el botón de abajo para ver las opciones disponibles 👇',
+};
+
+// A qué menú regresa el botón "Menú anterior" según la opción consultada
+const backTarget = {
+  familiar: 'volver_reuniones',
+  next: 'volver_reuniones',
+  intercesion: 'volver_reuniones',
+  lideres: 'volver_main',
+  direccion: 'volver_main',
+  reset: 'volver_main',
 };
 
 // Menú principal (lista)
@@ -141,6 +153,35 @@ async function sendYesNo(to, bodyText) {
   );
 }
 
+// ==== Botones de navegación: Menú anterior / Finalizar ====
+async function sendNav(to, backId) {
+  await axios.post(
+    GRAPH_URL,
+    {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: '¿Qué deseas hacer ahora?' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: backId, title: 'Menú anterior' } },
+            { type: 'reply', reply: { id: 'finalizar', title: 'Finalizar' } },
+          ],
+        },
+      },
+    },
+    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+  );
+}
+
+// Envía la respuesta de una opción y, si corresponde, los botones de navegación
+async function sendAnswer(to, key) {
+  await sendText(to, answers[key]);
+  if (backTarget[key]) await sendNav(to, backTarget[key]);
+}
+
 // ==== Notificación al equipo cuando alguien deja sus datos ====
 async function notifyAdmin(titulo, nombre, celular, distrito, waId) {
   if (!ADMIN_PHONE) return;
@@ -155,6 +196,23 @@ async function handleMessage(waId, text, interactiveId) {
   const session = getSession(waId);
   const val = (text || '').trim();
 
+  // --- Navegación: Menú anterior / Finalizar ---
+  if (interactiveId === 'volver_main') {
+    session.flow = null;
+    await sendMainMenu(waId, 'Elige una opción:');
+    return;
+  }
+  if (interactiveId === 'volver_reuniones') {
+    session.flow = null;
+    await sendReunionesMenu(waId);
+    return;
+  }
+  if (interactiveId === 'finalizar') {
+    session.flow = null;
+    await sendText(waId, answers.finalizar);
+    return;
+  }
+
   // --- Botones Sí/No de Grupo de Conexión ---
   if (interactiveId === 'si') {
     session.flow = null;
@@ -162,6 +220,7 @@ async function handleMessage(waId, text, interactiveId) {
       waId,
       '🙏 ¡Qué alegría saber que ya formas parte de un Grupo de Conexión! Que sigas creciendo junto a tu grupo y experimentando el amor de Dios cada día. Dios te bendiga.'
     );
+    await sendNav(waId, 'volver_main');
     return;
   }
   if (interactiveId === 'no') {
@@ -185,7 +244,7 @@ async function handleMessage(waId, text, interactiveId) {
     return;
   }
   if (interactiveId && answers[interactiveId]) {
-    await sendText(waId, answers[interactiveId]);
+    await sendAnswer(waId, interactiveId);
     return;
   }
 
@@ -205,13 +264,14 @@ async function handleMessage(waId, text, interactiveId) {
   if (session.flow === 'integrante_distrito') {
     const { tempName, tempPhone } = session;
     session.flow = null;
+    session.tempName = '';
+    session.tempPhone = '';
     await sendText(
       waId,
       `¡Gracias, ${tempName}! 🙌 Ya registramos tus datos (${tempName} — ${tempPhone} — ${val}) y muy pronto alguien de nuestro equipo te contactará para poder guiarte en la iglesia. Dios te bendiga.`
     );
     await notifyAdmin('Nuevo integrante', tempName, tempPhone, val, waId);
-    session.tempName = '';
-    session.tempPhone = '';
+    await sendNav(waId, 'volver_main');
     return;
   }
 
@@ -231,13 +291,14 @@ async function handleMessage(waId, text, interactiveId) {
   if (session.flow === 'conexion_distrito') {
     const { tempName, tempPhone } = session;
     session.flow = null;
+    session.tempName = '';
+    session.tempPhone = '';
     await sendText(
       waId,
       `¡Gracias, ${tempName}! 🙌 Ya registramos tus datos (${tempName} — ${tempPhone} — ${val}) y muy pronto alguien de nuestro equipo te contactará para conectarte con un Grupo de Conexión. Dios te bendiga.`
     );
     await notifyAdmin('Interesado en Grupo de Conexión', tempName, tempPhone, val, waId);
-    session.tempName = '';
-    session.tempPhone = '';
+    await sendNav(waId, 'volver_main');
     return;
   }
 
@@ -268,7 +329,7 @@ async function handleMessage(waId, text, interactiveId) {
     return;
   }
   if (key && answers[key]) {
-    await sendText(waId, answers[key]);
+    await sendAnswer(waId, key); // despedida no tiene botones de navegación
     return;
   }
 
