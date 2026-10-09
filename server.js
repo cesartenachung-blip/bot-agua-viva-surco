@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
@@ -9,6 +10,8 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const ADMIN_PHONE = process.env.ADMIN_PHONE; // tu número (o el del encargado). Ej: 51961871143
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // contraseña de la página /admin (usa 16+ caracteres)
+const MAX_BROADCAST = 250; // máximo de contactos por envío (límite de Meta hasta verificar el negocio)
 
 const GRAPH_URL = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
 
@@ -55,6 +58,7 @@ const menuRows = [
 const keywords = [
   [/^(hola|buen[oa]s?\s?(d[ií]as|tardes|noches)|saludos|hey|qu[eé]\s?tal|dios te bendiga|paz de dios|bendiciones)/i, 'saludo'],
   [/gracias|chau|chao|bye|adi[oó]s|hasta luego|nos vemos/i, 'despedida'],
+  [/^baja\b|darme de baja|no quiero recibir|dejar de recibir/i, 'baja'],
   [/menu|opciones|ayuda/i, 'menu'],
   [/nuevo integrante|primera vez|soy nuevo/i, 'integrante'],
   [/reunion/i, 'reuniones'],
@@ -306,6 +310,15 @@ async function handleMessage(waId, text, interactiveId) {
   const match = keywords.find(([re]) => re.test(val));
   const key = match ? match[1] : null;
 
+  if (key === 'baja') {
+    await sendText(waId, '✅ Listo. No volverás a recibir anuncios nuestros. Si cambias de opinión, escribe *Hola*.');
+    if (ADMIN_PHONE) {
+      await sendText(ADMIN_PHONE, `🚫 *Solicitud de baja de anuncios*\nWhatsApp: ${waId}\nQuítalo de tu lista de envío.`).catch((e) =>
+        console.error('No se pudo notificar la baja:', e.response?.data || e.message)
+      );
+    }
+    return;
+  }
   if (key === 'saludo') {
     await sendText(waId, answers.saludo);
     await sendMainMenu(waId, '¿En qué puedo ayudarte hoy?');
@@ -337,6 +350,124 @@ async function handleMessage(waId, text, interactiveId) {
   await sendText(waId, answers.ayuda);
   await sendMainMenu(waId, 'Elige una opción:');
 }
+
+
+// ==== Envío de plantillas (anuncios masivos) ====
+async function sendTemplate(to, name, lang, param) {
+  const template = { name, language: { code: lang } };
+  if (param) template.components = [{ type: 'body', parameters: [{ type: 'text', text: param }] }];
+  await axios.post(
+    GRAPH_URL,
+    { messaging_product: 'whatsapp', to, type: 'template', template },
+    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+  );
+}
+
+function normalizePhone(raw) {
+  let d = String(raw).replace(/\D/g, '');
+  if (d.length === 9 && d.startsWith('9')) d = '51' + d; // celular peruano sin código de país
+  return d.length >= 11 && d.length <= 15 ? d : null;
+}
+
+// Cada línea: número, nombre (el nombre es opcional)
+function parseContacts(text) {
+  const seen = new Set();
+  const contacts = [];
+  let lines = 0;
+  String(text || '').split(/\r?\n/).forEach((line) => {
+    if (!line.trim()) return;
+    lines++;
+    const [num, ...rest] = line.split(/[,;\t]/);
+    const to = normalizePhone(num || '');
+    if (!to || seen.has(to)) return;
+    seen.add(to);
+    contacts.push({ to, name: rest.join(' ').replace(/\s+/g, ' ').trim() });
+  });
+  return { contacts, skipped: lines - contacts.length };
+}
+
+function checkPassword(p) {
+  if (!ADMIN_PASSWORD || typeof p !== 'string') return false;
+  const a = Buffer.from(p);
+  const b = Buffer.from(ADMIN_PASSWORD);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+const ADMIN_HTML = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Envío de anuncios - Agua Viva Surco</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;margin:0 auto;padding:20px 16px 60px;color:#222}
+h1{font-size:1.4rem} label{display:block;margin:14px 0 4px;font-weight:600;font-size:.95rem}
+input[type=text],input[type=password],textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #bbb;border-radius:8px;font-size:1rem}
+.chk{font-weight:400;display:flex;gap:8px;align-items:center}
+button{margin-top:18px;padding:12px 22px;background:#075E54;color:#fff;border:0;border-radius:8px;font-size:1rem;cursor:pointer}
+button:disabled{opacity:.5} pre{white-space:pre-wrap;background:#f4f4f4;padding:12px;border-radius:8px;font-size:.9rem}
+.nota{color:#666;font-size:.85rem}
+</style></head><body>
+<h1>Envío de anuncios</h1>
+<p class="nota">Solo para personas que aceptaron recibir mensajes de la iglesia. La plantilla debe estar aprobada en Meta.</p>
+<label for="pw">Contraseña</label><input type="password" id="pw" autocomplete="current-password">
+<label for="tpl">Nombre de la plantilla</label><input type="text" id="tpl" placeholder="invitacion_reset_octubre">
+<label for="lang">Idioma de la plantilla (código)</label><input type="text" id="lang" value="es">
+<label class="chk"><input type="checkbox" id="usevar"> La plantilla usa {{1}} para el nombre</label>
+<label for="contacts">Contactos (uno por línea: número, nombre)</label>
+<textarea id="contacts" rows="10" placeholder="51961871143, María&#10;987654321, Juan"></textarea>
+<p class="nota">Si el número tiene 9 dígitos, se le agrega 51 (Perú). Máximo ${MAX_BROADCAST} por envío.</p>
+<button id="send">Enviar anuncio</button>
+<pre id="out"></pre>
+<script>
+document.getElementById('send').onclick = async function () {
+  var btn = this, out = document.getElementById('out');
+  var contacts = document.getElementById('contacts').value;
+  var n = contacts.split(/\\n/).filter(function (l) { return l.trim(); }).length;
+  if (!n) { out.textContent = 'Pega al menos un contacto.'; return; }
+  if (!confirm('¿Enviar el anuncio a ' + n + ' contacto(s)?')) return;
+  btn.disabled = true; out.textContent = 'Enviando… no cierres esta página.';
+  try {
+    var r = await fetch('/admin/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: document.getElementById('pw').value, template: document.getElementById('tpl').value,
+        lang: document.getElementById('lang').value, useVar: document.getElementById('usevar').checked, contacts: contacts }) });
+    var d = await r.json();
+    if (!r.ok) { out.textContent = 'Error: ' + (d.error || r.status); }
+    else {
+      var t = 'Enviados: ' + d.sent + ' de ' + d.total + '\\nIgnorados (número inválido o repetido): ' + d.skipped;
+      if (d.failed.length) { t += '\\n\\nFallaron ' + d.failed.length + ':'; d.failed.forEach(function (f) { t += '\\n' + f.to + ' → ' + f.error; }); }
+      out.textContent = t;
+    }
+  } catch (e) { out.textContent = 'Error de conexión: ' + e.message; }
+  btn.disabled = false;
+};
+</script></body></html>`;
+
+app.get('/admin', (req, res) => res.type('html').send(ADMIN_HTML));
+
+app.post('/admin/send', async (req, res) => {
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Falta configurar ADMIN_PASSWORD en Railway' });
+  const { password, template, lang, useVar, contacts } = req.body || {};
+  if (!checkPassword(password)) return res.status(401).json({ error: 'Contraseña incorrecta' });
+  if (!template || typeof template !== 'string' || !template.trim()) {
+    return res.status(400).json({ error: 'Falta el nombre de la plantilla' });
+  }
+  const parsed = parseContacts(contacts);
+  if (!parsed.contacts.length) return res.status(400).json({ error: 'No hay contactos válidos' });
+  if (parsed.contacts.length > MAX_BROADCAST) {
+    return res.status(400).json({ error: `Máximo ${MAX_BROADCAST} contactos por envío` });
+  }
+
+  let sent = 0;
+  const failed = [];
+  for (const c of parsed.contacts) {
+    try {
+      await sendTemplate(c.to, template.trim(), (lang || 'es').trim(), useVar ? c.name || 'hermano(a)' : null);
+      sent++;
+    } catch (e) {
+      failed.push({ to: c.to, error: e.response?.data?.error?.message || e.message });
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  res.json({ total: parsed.contacts.length, sent, skipped: parsed.skipped, failed });
+});
 
 // ==== Verificación del Webhook ====
 app.get('/webhook', (req, res) => {
