@@ -353,9 +353,12 @@ async function handleMessage(waId, text, interactiveId) {
 
 
 // ==== Envío de plantillas (anuncios masivos) ====
-async function sendTemplate(to, name, lang, param) {
+async function sendTemplate(to, name, lang, param, imageUrl) {
   const template = { name, language: { code: lang } };
-  if (param) template.components = [{ type: 'body', parameters: [{ type: 'text', text: param }] }];
+  const components = [];
+  if (imageUrl) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: imageUrl } }] });
+  if (param) components.push({ type: 'body', parameters: [{ type: 'text', text: param }] });
+  if (components.length) template.components = components;
   await axios.post(
     GRAPH_URL,
     { messaging_product: 'whatsapp', to, type: 'template', template },
@@ -409,8 +412,9 @@ button:disabled{opacity:.5} pre{white-space:pre-wrap;background:#f4f4f4;padding:
 <p class="nota">Solo para personas que aceptaron recibir mensajes de la iglesia. La plantilla debe estar aprobada en Meta.</p>
 <label for="pw">Contraseña</label><input type="password" id="pw" autocomplete="current-password">
 <label for="tpl">Nombre de la plantilla</label><input type="text" id="tpl" placeholder="invitacion_reset_octubre">
-<label for="lang">Idioma de la plantilla (código)</label><input type="text" id="lang" value="es">
+<label for="lang">Idioma de la plantilla (código)</label><input type="text" id="lang" value="es_PE">
 <label class="chk"><input type="checkbox" id="usevar"> La plantilla usa {{1}} para el nombre</label>
+<label for="img">URL de la imagen (solo si la plantilla tiene una imagen arriba)</label><input type="text" id="img" placeholder="https://...">
 <label for="contacts">Contactos (uno por línea: número, nombre)</label>
 <textarea id="contacts" rows="10" placeholder="51961871143, María&#10;987654321, Juan"></textarea>
 <p class="nota">Si el número tiene 9 dígitos, se le agrega 51 (Perú). Máximo ${MAX_BROADCAST} por envío.</p>
@@ -427,7 +431,7 @@ document.getElementById('send').onclick = async function () {
   try {
     var r = await fetch('/admin/send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: document.getElementById('pw').value, template: document.getElementById('tpl').value,
-        lang: document.getElementById('lang').value, useVar: document.getElementById('usevar').checked, contacts: contacts }) });
+        lang: document.getElementById('lang').value, useVar: document.getElementById('usevar').checked, image: document.getElementById('img').value, contacts: contacts }) });
     var d = await r.json();
     if (!r.ok) { out.textContent = 'Error: ' + (d.error || r.status); }
     else {
@@ -444,10 +448,13 @@ app.get('/admin', (req, res) => res.type('html').send(ADMIN_HTML));
 
 app.post('/admin/send', async (req, res) => {
   if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Falta configurar ADMIN_PASSWORD en Railway' });
-  const { password, template, lang, useVar, contacts } = req.body || {};
+  const { password, template, lang, useVar, contacts, image } = req.body || {};
   if (!checkPassword(password)) return res.status(401).json({ error: 'Contraseña incorrecta' });
   if (!template || typeof template !== 'string' || !template.trim()) {
     return res.status(400).json({ error: 'Falta el nombre de la plantilla' });
+  }
+  if (image && !/^https:\/\/\S+$/i.test(String(image).trim())) {
+    return res.status(400).json({ error: 'La URL de la imagen debe empezar con https://' });
   }
   const parsed = parseContacts(contacts);
   if (!parsed.contacts.length) return res.status(400).json({ error: 'No hay contactos válidos' });
@@ -459,7 +466,7 @@ app.post('/admin/send', async (req, res) => {
   const failed = [];
   for (const c of parsed.contacts) {
     try {
-      await sendTemplate(c.to, template.trim(), (lang || 'es').trim(), useVar ? c.name || 'hermano(a)' : null);
+      await sendTemplate(c.to, template.trim(), (lang || 'es_PE').trim(), useVar ? c.name || 'hermano(a)' : null, image ? String(image).trim() : null);
       sent++;
     } catch (e) {
       failed.push({ to: c.to, error: e.response?.data?.error?.message || e.message });
