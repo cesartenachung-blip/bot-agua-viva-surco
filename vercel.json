@@ -2,13 +2,10 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 300,
-      "includeFiles": "conocimiento.md"
+      "includeFiles": "{conocimiento.md,public/**}"
     }
   },
   "rewrites": [
-    {
-      "source": "/((?!privacidad\\.html|terminos\\.html|escuela\\.jpeg|flyers/).*)",
-      "destination": "/api"
-    }
+    { "source": "/(.*)", "destination": "/api" }
   ]
 }

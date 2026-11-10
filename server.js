@@ -4,6 +4,7 @@ const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(require('path').join(__dirname, 'public')));
 
 // ==== Variables de entorno ====
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;

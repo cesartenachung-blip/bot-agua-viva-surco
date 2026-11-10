@@ -75,7 +75,7 @@ INSTRUCCIONES PARA EDITAR (el bot no muestra estos comentarios como respuesta):
 ## Imágenes disponibles
 <!--
 Formato: - id: archivo — descripción de cuándo enviarla
-Sube las imágenes (JPG o PNG, máximo 5 MB) a la carpeta flyers/ del repo.
+Sube las imágenes (JPG o PNG, máximo 5 MB) a la carpeta public/flyers/ del repo. Aquí se escriben sin "public/".
 ids con imagen automática en los botones del menú:
   escuela (Escuela de Líderes), reset (Reset), mapa (Dirección), servicios (Servicio Familiar), next (NEXT)
 -->
