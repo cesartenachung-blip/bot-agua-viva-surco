@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/index.js": { "maxDuration": 300 }
+  },
+  "rewrites": [
+    { "source": "/((?!privacidad\\.html|terminos\\.html|escuela\\.jpeg).*)", "destination": "/api" }
+  ]
+}

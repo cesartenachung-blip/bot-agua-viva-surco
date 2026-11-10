@@ -72,12 +72,39 @@ const keywords = [
   [/conexi[oó]n|grupo/i, 'conexion'],
 ];
 
-// ==== Estado de conversación por usuario (en memoria) ====
-const sessions = new Map(); // wa_id -> { flow, tempName, tempPhone }
+// ==== Estado de conversación por usuario ====
+// En Vercel se guarda en Upstash Redis (las funciones no comparten memoria).
+// Si no hay credenciales de Redis (pruebas locales), se usa memoria.
+const { Redis } = require('@upstash/redis');
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+const redis = REDIS_URL && REDIS_TOKEN ? new Redis({ url: REDIS_URL, token: REDIS_TOKEN }) : null;
+const memSessions = new Map();
+const SESSION_TTL = 60 * 60; // 1 hora sin responder y se reinicia el flujo
 
-function getSession(waId) {
-  if (!sessions.has(waId)) sessions.set(waId, { flow: null, tempName: '', tempPhone: '' });
-  return sessions.get(waId);
+async function loadSession(waId) {
+  const empty = { flow: null, tempName: '', tempPhone: '' };
+  if (!redis) return memSessions.get(waId) || empty;
+  try {
+    return (await redis.get(`ses:${waId}`)) || empty;
+  } catch (e) {
+    console.error('Redis get:', e.message);
+    return empty;
+  }
+}
+
+async function saveSession(waId, session) {
+  const vacia = !session.flow && !session.tempName && !session.tempPhone;
+  if (!redis) {
+    vacia ? memSessions.delete(waId) : memSessions.set(waId, session);
+    return;
+  }
+  try {
+    if (vacia) await redis.del(`ses:${waId}`);
+    else await redis.set(`ses:${waId}`, session, { ex: SESSION_TTL });
+  } catch (e) {
+    console.error('Redis set:', e.message);
+  }
 }
 
 // ==== Envío de mensajes de texto simple ====
@@ -197,7 +224,15 @@ async function notifyAdmin(titulo, nombre, celular, distrito, waId) {
 
 // ==== Lógica principal ====
 async function handleMessage(waId, text, interactiveId) {
-  const session = getSession(waId);
+  const session = await loadSession(waId);
+  try {
+    await processMessage(waId, text, interactiveId, session);
+  } finally {
+    await saveSession(waId, session);
+  }
+}
+
+async function processMessage(waId, text, interactiveId, session) {
   const val = (text || '').trim();
 
   // --- Navegación: Menú anterior / Finalizar ---
@@ -447,7 +482,7 @@ document.getElementById('send').onclick = async function () {
 app.get('/admin', (req, res) => res.type('html').send(ADMIN_HTML));
 
 app.post('/admin/send', async (req, res) => {
-  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Falta configurar ADMIN_PASSWORD en Railway' });
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Falta configurar ADMIN_PASSWORD en Vercel' });
   const { password, template, lang, useVar, contacts, image } = req.body || {};
   if (!checkPassword(password)) return res.status(401).json({ error: 'Contraseña incorrecta' });
   if (!template || typeof template !== 'string' || !template.trim()) {
@@ -490,15 +525,13 @@ app.get('/webhook', (req, res) => {
 
 // ==== Recepción de mensajes entrantes ====
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200);
-
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
     const value = change?.value;
     const message = value?.messages?.[0];
 
-    if (!message) return;
+    if (!message) return res.sendStatus(200);
 
     const waId = message.from;
 
@@ -514,9 +547,15 @@ app.post('/webhook', async (req, res) => {
   } catch (err) {
     console.error('Error procesando mensaje:', err.response?.data || err.message);
   }
+  res.sendStatus(200); // se responde al final para que Vercel no corte el proceso
 });
 
 app.get('/', (req, res) => res.send('Bot Agua Viva Surco activo ✅'));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor escuchando en puerto ${PORT}`));
+// En Vercel se exporta la app; en local se levanta con npm start
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Servidor escuchando en puerto ${PORT}`));
+}
+
+module.exports = app;
