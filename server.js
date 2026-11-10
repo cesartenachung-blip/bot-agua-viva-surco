@@ -110,7 +110,7 @@ const keywords = [
   [/domin/i, 'familiar'],
   [/next/i, 'next'],
   [/interces/i, 'intercesion'],
-  [/l[ií]der/i, 'lideres'],
+  [/l[ií]der|escuela/i, 'lideres'],
   [/direcc|ubicaci|donde/i, 'direccion'],
   [/reset/i, 'reset'],
   [/conexi[oó]n|grupo/i, 'conexion'],
@@ -514,7 +514,7 @@ async function answerWithAI(waId, val, session) {
       'https://api.anthropic.com/v1/messages',
       {
         model: CLAUDE_MODEL,
-        max_tokens: 400,
+        max_tokens: 600,
         system: [
           { type: 'text', text: SYSTEM_PROMPT },
           { type: 'text', text: `# Información de la iglesia\n\n${KNOWLEDGE}`, cache_control: { type: 'ephemeral' } },
@@ -535,7 +535,14 @@ async function answerWithAI(waId, val, session) {
 
   const urgente = raw.includes('[URGENTE]');
   const derivar = urgente || raw.includes('[DERIVAR]');
-  const imgId = (raw.match(/\[IMAGEN:\s*([a-z0-9_-]+)\]/i) || [])[1];
+  const imageHints = [
+    [/escuela|l[ií]der/i, 'escuela'],
+    [/reset|retiro/i, 'reset'],
+    [/\bnext\b|j[oó]venes/i, 'next'],
+    [/direcci|ubicaci|c[oó]mo llego|d[oó]nde (queda|est[aá])/i, 'mapa'],
+  ];
+  const hint = (imageHints.find(([re]) => re.test(val)) || [])[1];
+  const imgId = (raw.match(/\[IMAGEN:\s*([a-z0-9_-]+)\]/i) || [])[1] || (derivar ? null : hint);
   const img = imgId ? IMAGES[imgId.toLowerCase()] : null;
   const texto = raw.replace(/\[(URGENTE|DERIVAR)\]|\[IMAGEN:[^\]]*\]/gi, '').trim();
 
