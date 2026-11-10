@@ -1,8 +1,14 @@
 {
   "functions": {
-    "api/index.js": { "maxDuration": 300 }
+    "api/index.js": {
+      "maxDuration": 300,
+      "includeFiles": "conocimiento.md"
+    }
   },
   "rewrites": [
-    { "source": "/((?!privacidad\\.html|terminos\\.html|escuela\\.jpeg).*)", "destination": "/api" }
+    {
+      "source": "/((?!privacidad\\.html|terminos\\.html|escuela\\.jpeg).*)",
+      "destination": "/api"
+    }
   ]
 }
