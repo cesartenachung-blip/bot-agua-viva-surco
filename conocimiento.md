@@ -72,5 +72,16 @@ INSTRUCCIONES PARA EDITAR (el bot no muestra estos comentarios como respuesta):
 ## Estacionamiento y cómo llegar
 - [COMPLETAR: si hay estacionamiento, dónde, y líneas de transporte / Metropolitano cercano]
 
+## Imágenes disponibles
+<!--
+Formato: - id: archivo — descripción de cuándo enviarla
+Sube las imágenes (JPG o PNG, máximo 5 MB) a la carpeta flyers/ del repo.
+ids con imagen automática en los botones del menú:
+  escuela (Escuela de Líderes), reset (Reset), mapa (Dirección), servicios (Servicio Familiar), next (NEXT)
+-->
+- escuela: escuela.jpeg — Horarios de la Escuela de Líderes
+- reset: flyers/reset.jpg — Flyer del próximo Reset con fechas e inscripción
+- servicios: flyers/servicios.jpg — Horarios de los servicios de la sede Surco
+
 ## Creencias
 - [COMPLETAR: un resumen breve de lo que cree la iglesia, si quieres que el bot lo explique]

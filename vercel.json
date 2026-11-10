@@ -7,7 +7,7 @@
   },
   "rewrites": [
     {
-      "source": "/((?!privacidad\\.html|terminos\\.html|escuela\\.jpeg).*)",
+      "source": "/((?!privacidad\\.html|terminos\\.html|escuela\\.jpeg|flyers/).*)",
       "destination": "/api"
     }
   ]
