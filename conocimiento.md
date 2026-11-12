@@ -80,7 +80,7 @@ ids con imagen automática en los botones del menú:
   escuela (Escuela de Líderes), reset (Reset), mapa (Dirección), servicios (Servicio Familiar), next (NEXT)
 -->
 - escuela: escuela.jpeg — Horarios de la Escuela de Líderes
-- reset: flyers/reset.jpg — Flyer del próximo Reset con fechas e inscripción
+- reset: reset.PNG — Flyer del próximo Reset con fechas e inscripción
 - servicios: flyers/servicios.jpg — Horarios de los servicios de la sede Surco
 
 ## Creencias
