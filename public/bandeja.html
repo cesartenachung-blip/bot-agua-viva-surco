@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Bandeja · Agua Viva Surco</title>
+<style>
+:root{
+  --fondo:#EEF5F5; --panel:#FFFFFF; --tinta:#12313A; --suave:#5B7780; --linea:#D5E5E7;
+  --hondo:#0E5566; --hondo-txt:#FFFFFF; --orilla:#DDEEEF; --entrante:#FFFFFF;
+  --ambar:#B7790F; --rojo:#B3261E; --verde:#2E7D5B; --gris:#7A8C91;
+  --sel:#E3F0F1; --sombra:0 1px 1px rgba(18,49,58,.08);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --fondo:#0C1B20; --panel:#12252B; --tinta:#E3EEF0; --suave:#93AAB0; --linea:#21393F;
+    --hondo:#2C8A9C; --hondo-txt:#FFFFFF; --orilla:#1B353C; --entrante:#17303A;
+    --ambar:#E0A73A; --rojo:#F0736B; --verde:#5CC096; --gris:#8A9DA2;
+    --sel:#1A333A; --sombra:none;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--fondo);color:var(--tinta);
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--hondo);outline-offset:2px}
+.oculto{display:none!important}
+
+/* Ingreso */
+#ingreso{height:100%;display:grid;place-items:center;padding:24px}
+#ingreso form{width:100%;max-width:340px;background:var(--panel);padding:28px 24px;border-radius:14px;border:1px solid var(--linea)}
+#ingreso h1{font-size:1.35rem;margin:0 0 4px}
+#ingreso p{margin:0 0 18px;color:var(--suave);font-size:.92rem}
+#ingreso input{width:100%;padding:11px 12px;border:1px solid var(--linea);border-radius:10px;background:var(--fondo)}
+.btn{background:var(--hondo);color:var(--hondo-txt);border:0;border-radius:10px;padding:11px 18px;font-weight:600}
+.btn:disabled{opacity:.5;cursor:default}
+#ingreso .btn{width:100%;margin-top:12px}
+.error{color:var(--rojo);font-size:.88rem;min-height:1.2em;margin-top:10px}
+
+/* App */
+#app{height:100%;display:grid;grid-template-columns:minmax(300px,360px) 1fr}
+#lista{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--linea);min-height:0}
+.cab{padding:14px 16px 10px;border-bottom:1px solid var(--linea)}
+.cab h1{font-size:1.15rem;margin:0}
+.cab .sub{font-size:.82rem;color:var(--suave);display:flex;justify-content:space-between;gap:8px}
+.cab .sub a{color:var(--suave)}
+#buscar{width:100%;margin-top:10px;padding:9px 12px;border-radius:10px;border:1px solid var(--linea);background:var(--fondo)}
+.filtros{display:flex;gap:6px;margin-top:10px}
+.filtros button{border:1px solid var(--linea);background:transparent;border-radius:999px;padding:4px 12px;font-size:.85rem;color:var(--suave)}
+.filtros button[aria-pressed="true"]{background:var(--hondo);border-color:var(--hondo);color:var(--hondo-txt)}
+#chats{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
+#chats li button{all:unset;box-sizing:border-box;display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;padding:11px 16px;border-bottom:1px solid var(--linea);cursor:pointer;position:relative}
+#chats li button:focus-visible{outline:2px solid var(--hondo);outline-offset:-2px}
+#chats li button[aria-current="true"]{background:var(--sel)}
+#chats li[data-flag] button{padding-left:20px}
+#chats li[data-flag] button::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ambar)}
+#chats li[data-flag="urgente"] button::before{background:var(--rojo)}
+#chats li[data-flag="registro"] button::before{background:var(--verde)}
+#chats li[data-flag="baja"] button::before{background:var(--gris)}
+.c-nom{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-hora{font-size:.78rem;color:var(--suave);text-align:right}
+.c-ult{font-size:.88rem;color:var(--suave);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-der{display:flex;gap:6px;justify-content:flex-end;align-items:center}
+.badge{background:var(--hondo);color:var(--hondo-txt);border-radius:999px;font-size:.75rem;font-weight:700;min-width:20px;padding:1px 6px;text-align:center}
+.etq{font-size:.72rem;font-weight:600;border-radius:6px;padding:1px 6px;color:var(--ambar);border:1px solid currentColor}
+.etq.urgente{color:var(--rojo)} .etq.registro{color:var(--verde)} .etq.baja{color:var(--gris)}
+.pausa-ico{font-size:.72rem;color:var(--suave)}
+.vacio{padding:28px 18px;color:var(--suave);font-size:.92rem}
+
+/* Chat */
+#chat{display:flex;flex-direction:column;min-height:0;min-width:0}
+#chat-vacio{margin:auto;color:var(--suave);text-align:center;padding:24px;max-width:360px}
+#chat-cab{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--linea)}
+#volver{display:none;border:0;background:transparent;font-size:1.4rem;padding:2px 8px 2px 0;color:var(--hondo)}
+#chat-cab .quien{flex:1;min-width:0}
+#chat-nom{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#chat-num{font-size:.82rem;color:var(--suave)}
+#chat-num a{color:var(--suave)}
+.acciones{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.acciones button{border:1px solid var(--linea);background:transparent;border-radius:8px;padding:6px 10px;font-size:.84rem}
+#aviso-flag{padding:8px 16px;font-size:.88rem;background:var(--panel);border-bottom:1px solid var(--linea)}
+#msgs{flex:1;overflow-y:auto;padding:16px 4% 8px;display:flex;flex-direction:column;gap:4px}
+.dia{align-self:center;font-size:.78rem;color:var(--suave);background:var(--panel);border-radius:8px;padding:2px 10px;margin:10px 0 6px;box-shadow:var(--sombra)}
+.m{max-width:min(78%,560px);padding:7px 10px 5px;border-radius:12px;box-shadow:var(--sombra);overflow-wrap:anywhere;white-space:pre-wrap}
+.m.in{align-self:flex-start;background:var(--entrante);border-top-left-radius:4px}
+.m.out{align-self:flex-end;border-top-right-radius:4px}
+.m.bot,.m.anuncio{background:var(--orilla)}
+.m.lider{background:var(--hondo);color:var(--hondo-txt)}
+.m.lider a{color:inherit}
+.m .pie{display:block;text-align:right;font-size:.72rem;opacity:.7;margin-top:2px}
+.m .eligio{font-size:.75rem;opacity:.75;display:block}
+.m .opts{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.m .opts span{font-size:.75rem;border:1px solid var(--linea);border-radius:6px;padding:1px 6px;background:var(--panel)}
+.m img,.m video{display:block;max-width:100%;max-height:320px;border-radius:8px;margin-bottom:4px}
+.m audio{max-width:100%;margin-bottom:4px}
+.m .cargar{border:1px dashed var(--linea);background:transparent;border-radius:8px;padding:8px 10px;margin-bottom:4px;font-size:.84rem;color:inherit}
+#escribir{border-top:1px solid var(--linea);background:var(--panel);padding:10px 12px 12px}
+#ventana{font-size:.8rem;color:var(--suave);margin:0 2px 8px}
+#ventana.cerrada{color:var(--rojo)}
+.fila{display:flex;gap:8px;align-items:flex-end}
+#texto{flex:1;resize:none;max-height:140px;padding:10px 12px;border:1px solid var(--linea);border-radius:12px;background:var(--fondo)}
+#enviar-err{color:var(--rojo);font-size:.84rem;margin:6px 2px 0;min-height:0}
+
+@media (max-width:760px){
+  #app{grid-template-columns:1fr}
+  #app.en-chat #lista{display:none}
+  #app:not(.en-chat) #chat{display:none}
+  #volver{display:block}
+  .m{max-width:88%}
+}
+@media (prefers-reduced-motion:no-preference){ #msgs{scroll-behavior:smooth} }
+</style>
+</head>
+<body>
+
+<section id="ingreso">
+  <form id="f-ingreso">
+    <h1>Bandeja de mensajes</h1>
+    <p>Agua Viva Surco. Usa la misma contraseña de la página de anuncios.</p>
+    <label for="clave" class="oculto">Contraseña</label>
+    <input id="clave" type="password" autocomplete="current-password" placeholder="Contraseña" required>
+    <button class="btn" type="submit">Entrar</button>
+    <div class="error" id="ingreso-err" role="alert"></div>
+  </form>
+</section>
+
+<div id="app" class="oculto">
+  <aside id="lista">
+    <div class="cab">
+      <h1>Bandeja de mensajes</h1>
+      <div class="sub"><span id="estado">Conectando…</span><span><a href="/admin">Anuncios</a> · <a href="#" id="salir">Salir</a></span></div>
+      <input id="buscar" type="search" placeholder="Buscar nombre o número" aria-label="Buscar">
+      <div class="filtros" role="group" aria-label="Filtrar chats">
+        <button data-f="todos" aria-pressed="true">Todos</button>
+        <button data-f="atender" aria-pressed="false">Por atender</button>
+        <button data-f="noleidos" aria-pressed="false">No leídos</button>
+      </div>
+    </div>
+    <ul id="chats"></ul>
+  </aside>
+
+  <main id="chat">
+    <div id="chat-vacio">Elige una conversación para ver los mensajes. Los chats marcados en color necesitan que alguien del equipo los atienda.</div>
+    <div id="chat-cab" class="oculto">
+      <button id="volver" aria-label="Volver a la lista">‹</button>
+      <div class="quien"><div id="chat-nom"></div><div id="chat-num"></div></div>
+      <div class="acciones">
+        <button id="b-atendido" class="oculto">Marcar atendido</button>
+        <button id="b-bot"></button>
+      </div>
+    </div>
+    <div id="aviso-flag" class="oculto"></div>
+    <div id="msgs" class="oculto" aria-live="polite"></div>
+    <form id="escribir" class="oculto">
+      <p id="ventana"></p>
+      <div class="fila">
+        <textarea id="texto" rows="1" placeholder="Escribe una respuesta" aria-label="Respuesta"></textarea>
+        <button class="btn" id="b-enviar" type="submit">Enviar</button>
+      </div>
+      <p id="enviar-err" role="alert"></p>
+    </form>
+  </main>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var clave = sessionStorage.getItem('bandeja-clave') || '';
+  var chats = [], filtro = 'todos', abierto = null, info = null, ver = -1, timer = null;
+  var mediaCache = {};
+  var FLAGS = {
+    urgente: ['Urgente', 'La IA detectó una situación pastoral urgente. Contacta a esta persona cuanto antes.'],
+    consulta: ['Consulta', 'El bot no tuvo la respuesta o la persona pidió hablar con un líder.'],
+    registro: ['Registro', 'Dejó sus datos (Nuevo integrante o Grupo de conexión).'],
+    baja: ['Baja', 'Pidió no recibir más anuncios. Quítalo de tu lista de envío.']
+  };
+  var VENTANA = 24 * 60 * 60 * 1000;
+
+  function api(ruta, opts) {
+    opts = opts || {};
+    var h = { 'x-clave': encodeURIComponent(clave) };
+    if (opts.body) h['Content-Type'] = 'application/json';
+    return fetch('/bandeja/api/' + ruta, { method: opts.method || 'GET', headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined })
+      .then(function (r) {
+        if (opts.blob && r.ok) return r.blob();
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (r.status === 401) { salir(); throw new Error(d.error || 'Contraseña incorrecta.'); }
+          if (!r.ok) throw new Error(d.error || ('Error ' + r.status));
+          return d;
+        });
+      });
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function formato(s) {
+    return esc(s)
+      .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
+      .replace(/_([^_\n]+)_/g, '<i>$1</i>')
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  }
+  function hora(ts) { return new Date(ts).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }); }
+  function cuando(ts) {
+    if (!ts) return '';
+    var d = new Date(ts), hoy = new Date();
+    if (d.toDateString() === hoy.toDateString()) return hora(ts);
+    var ayer = new Date(); ayer.setDate(hoy.getDate() - 1);
+    if (d.toDateString() === ayer.toDateString()) return 'Ayer';
+    return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit' });
+  }
+  function dia(ts) {
+    var d = new Date(ts), hoy = new Date();
+    if (d.toDateString() === hoy.toDateString()) return 'Hoy';
+    var ayer = new Date(); ayer.setDate(hoy.getDate() - 1);
+    if (d.toDateString() === ayer.toDateString()) return 'Ayer';
+    return d.toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+  function numero(wa) { wa = String(wa); return wa.indexOf('51') === 0 && wa.length === 11 ? '+51 ' + wa.slice(2, 5) + ' ' + wa.slice(5, 8) + ' ' + wa.slice(8) : '+' + wa; }
+  function nombre(c) { return c.name || numero(c.wa); }
+
+  // ---- Ingreso ----
+  $('f-ingreso').onsubmit = function (e) {
+    e.preventDefault();
+    clave = $('clave').value;
+    $('ingreso-err').textContent = '';
+    api('ver').then(function () {
+      sessionStorage.setItem('bandeja-clave', clave);
+      iniciar();
+    }).catch(function (err) { $('ingreso-err').textContent = err.message; });
+  };
+  function salir(e) {
+    if (e) e.preventDefault();
+    sessionStorage.removeItem('bandeja-clave'); clave = '';
+    clearTimeout(timer);
+    $('app').classList.add('oculto'); $('ingreso').classList.remove('oculto');
+    $('clave').value = ''; $('clave').focus();
+  }
+  $('salir').onclick = salir;
+
+  function iniciar() {
+    $('ingreso').classList.add('oculto'); $('app').classList.remove('oculto');
+    ver = -1; revisar();
+  }
+
+  // ---- Refresco: solo recarga cuando hay mensajes nuevos ----
+  function revisar() {
+    clearTimeout(timer);
+    if (document.hidden) { timer = setTimeout(revisar, 10000); return; }
+    api('ver').then(function (d) {
+      $('estado').textContent = 'Actualizado ' + hora(Date.now());
+      if (d.ver !== ver) {
+        ver = d.ver;
+        cargarChats();
+        if (abierto) cargarChat(abierto, false);
+      }
+    }).catch(function (err) { $('estado').textContent = err.message; })
+      .then(function () { if (clave) timer = setTimeout(revisar, 10000); });
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && clave) revisar(); });
+
+  // ---- Lista ----
+  function cargarChats() {
+    return api('chats').then(function (d) { chats = d.chats || []; pintarLista(); });
+  }
+  function pintarLista() {
+    var q = $('buscar').value.trim().toLowerCase();
+    var lista = chats.filter(function (c) {
+      if (filtro === 'atender' && !c.flag) return false;
+      if (filtro === 'noleidos' && !c.unread) return false;
+      if (q && (c.name || '').toLowerCase().indexOf(q) < 0 && String(c.wa).indexOf(q.replace(/\D/g, '') || '§') < 0) return false;
+      return true;
+    });
+    var ul = $('chats');
+    if (!lista.length) {
+      ul.innerHTML = '<li class="vacio">' + (chats.length ? 'No hay chats con este filtro.' : 'Todavía no hay mensajes. Aparecerán aquí cuando alguien le escriba al bot.') + '</li>';
+      return;
+    }
+    ul.innerHTML = lista.map(function (c) {
+      var pref = c.lastBy === 'lider' ? 'Tú: ' : c.lastBy === 'bot' ? 'Bot: ' : c.lastBy === 'anuncio' ? 'Anuncio: ' : '';
+      var etq = c.flag && FLAGS[c.flag] ? '<span class="etq ' + c.flag + '">' + FLAGS[c.flag][0] + '</span>' : '';
+      return '<li' + (c.flag ? ' data-flag="' + esc(c.flag) + '"' : '') + '><button data-wa="' + esc(c.wa) + '"' + (c.wa === abierto ? ' aria-current="true"' : '') + '>' +
+        '<span class="c-nom">' + esc(nombre(c)) + '</span><span class="c-hora">' + cuando(c.lastTs) + '</span>' +
+        '<span class="c-ult">' + esc(pref + (c.last || '')) + '</span>' +
+        '<span class="c-der">' + (c.paused ? '<span class="pausa-ico" title="Bot en pausa">Bot en pausa</span>' : '') + etq +
+        (c.unread ? '<span class="badge" aria-label="' + c.unread + ' sin leer">' + c.unread + '</span>' : '') + '</span>' +
+        '</button></li>';
+    }).join('');
+  }
+  $('chats').onclick = function (e) {
+    var b = e.target.closest('button[data-wa]');
+    if (b) abrir(b.getAttribute('data-wa'));
+  };
+  $('buscar').oninput = pintarLista;
+  document.querySelectorAll('.filtros button').forEach(function (b) {
+    b.onclick = function () {
+      filtro = b.getAttribute('data-f');
+      document.querySelectorAll('.filtros button').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      pintarLista();
+    };
+  });
+
+  // ---- Chat ----
+  function abrir(wa) {
+    abierto = wa; info = null;
+    $('app').classList.add('en-chat');
+    ['chat-cab', 'msgs', 'escribir'].forEach(function (id) { $(id).classList.remove('oculto'); });
+    $('chat-vacio').classList.add('oculto');
+    $('msgs').innerHTML = '';
+    $('enviar-err').textContent = '';
+    var c = chats.filter(function (x) { return x.wa === wa; })[0];
+    if (c) { c.unread = 0; }
+    pintarLista();
+    cargarChat(wa, true);
+  }
+  $('volver').onclick = function () { $('app').classList.remove('en-chat'); abierto = null; pintarLista(); };
+
+  function cargarChat(wa, alFinal) {
+    return api('chat/' + wa).then(function (d) {
+      if (abierto !== wa) return;
+      var box = $('msgs');
+      var cerca = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      info = d;
+      pintarCab(wa, d);
+      pintarMsgs(d.msgs || []);
+      if (alFinal || cerca) box.scrollTop = box.scrollHeight;
+    }).catch(function (err) { $('msgs').innerHTML = '<p class="vacio">' + esc(err.message) + '</p>'; });
+  }
+
+  function pintarCab(wa, d) {
+    $('chat-nom').textContent = d.name || numero(wa);
+    $('chat-num').innerHTML = (d.name ? esc(numero(wa)) + ' · ' : '') + '<a href="https://wa.me/' + esc(wa) + '" target="_blank" rel="noopener">Abrir en WhatsApp</a>';
+    var pausado = d.pausaHasta > Date.now();
+    $('b-bot').textContent = pausado ? 'Reactivar bot' : 'Pausar bot';
+    $('b-bot').title = pausado ? 'El bot está en pausa hasta las ' + hora(d.pausaHasta) + '. Vuelve solo después de 24 h.' : 'Pausa el bot 24 h en este chat para atenderlo tú';
+    var f = d.flag && FLAGS[d.flag];
+    $('b-atendido').classList.toggle('oculto', !f);
+    $('aviso-flag').classList.toggle('oculto', !f);
+    if (f) $('aviso-flag').innerHTML = '<span class="etq ' + d.flag + '">' + f[0] + '</span> ' + esc(f[1]);
+    var abiertaVentana = Date.now() - d.lastIn < VENTANA;
+    var v = $('ventana');
+    if (abiertaVentana) {
+      var resta = d.lastIn + VENTANA - Date.now();
+      var h = Math.floor(resta / 3600000), m = Math.floor(resta % 3600000 / 60000);
+      v.textContent = 'Puedes responder durante ' + (h ? h + ' h ' : '') + m + ' min más. ' + (pausado ? 'El bot está en pausa en este chat.' : 'Al responder, el bot se pausa 24 h en este chat.');
+      v.className = '';
+    } else {
+      v.textContent = 'Pasaron más de 24 horas desde su último mensaje. WhatsApp solo permite escribirle con una plantilla aprobada desde Anuncios.';
+      v.className = 'cerrada';
+    }
+    $('texto').disabled = !abiertaVentana;
+    $('b-enviar').disabled = !abiertaVentana;
+  }
+
+  function pintarMsgs(msgs) {
+    var html = '', ultDia = '';
+    msgs.forEach(function (m) {
+      var dd = new Date(m.ts).toDateString();
+      if (dd !== ultDia) { ultDia = dd; html += '<div class="dia">' + esc(dia(m.ts)) + '</div>'; }
+      var clase = m.d === 'in' ? 'in' : 'out ' + (m.by || 'bot');
+      var autor = m.d === 'in' ? '' : m.by === 'lider' ? 'Equipo · ' : m.by === 'anuncio' ? 'Anuncio · ' : 'Bot · ';
+      var cuerpo = '';
+      if (m.eligio) cuerpo += '<span class="eligio">Eligió en el menú</span>';
+      if (m.img) cuerpo += '<img src="' + esc(m.img) + '" alt="Imagen enviada por el bot" loading="lazy">';
+      if (m.media) {
+        var tipo = m.k === 'document' ? 'documento' : m.k === 'audio' ? 'audio' : m.k === 'video' ? 'video' : m.k === 'sticker' ? 'sticker' : 'foto';
+        cuerpo += '<button type="button" class="cargar" data-media="' + esc(m.media) + '" data-k="' + esc(m.k) + '" data-mime="' + esc(m.mime || '') + '">Ver ' + tipo + '</button>';
+      }
+      if (m.loc) cuerpo += '<a href="https://maps.google.com/?q=' + esc(m.loc) + '" target="_blank" rel="noopener">';
+      if (m.t) cuerpo += formato(m.t);
+      if (m.loc) cuerpo += '</a>';
+      if (m.opts && m.opts.length) cuerpo += '<span class="opts">' + m.opts.map(function (o) { return '<span>' + esc(o) + '</span>'; }).join('') + '</span>';
+      html += '<div class="m ' + clase + '">' + cuerpo + '<span class="pie">' + autor + hora(m.ts) + '</span></div>';
+    });
+    $('msgs').innerHTML = html || '<p class="vacio">Sin mensajes guardados.</p>';
+    // Volver a mostrar archivos ya descargados
+    $('msgs').querySelectorAll('.cargar').forEach(function (b) {
+      var id = b.getAttribute('data-media');
+      if (mediaCache[id]) mostrarMedia(b, mediaCache[id]);
+    });
+  }
+
+  $('msgs').onclick = function (e) {
+    var b = e.target.closest('.cargar');
+    if (!b) return;
+    var id = b.getAttribute('data-media');
+    b.disabled = true; b.textContent = 'Cargando…';
+    api('media/' + id, { blob: true }).then(function (blob) {
+      if (!(blob instanceof Blob)) throw new Error('El archivo ya no está disponible en WhatsApp.');
+      mediaCache[id] = URL.createObjectURL(blob);
+      mostrarMedia(b, mediaCache[id]);
+    }).catch(function (err) { b.textContent = err.message; });
+  };
+  function mostrarMedia(b, url) {
+    var k = b.getAttribute('data-k'), el;
+    if (k === 'image' || k === 'sticker') { el = document.createElement('img'); el.alt = 'Imagen recibida'; }
+    else if (k === 'audio') { el = document.createElement('audio'); el.controls = true; }
+    else if (k === 'video') { el = document.createElement('video'); el.controls = true; }
+    else { el = document.createElement('a'); el.textContent = 'Abrir documento'; el.target = '_blank'; el.rel = 'noopener'; el.href = url; b.replaceWith(el); return; }
+    el.src = url; b.replaceWith(el);
+  }
+
+  // ---- Acciones ----
+  $('b-bot').onclick = function () {
+    if (!abierto || !info) return;
+    var activo = info.pausaHasta > Date.now();
+    this.disabled = true;
+    var b = this;
+    api('chat/' + abierto + '/bot', { method: 'POST', body: { activo: activo } })
+      .then(function () { return cargarChat(abierto, false); }).then(cargarChats)
+      .catch(function (err) { alert(err.message); })
+      .then(function () { b.disabled = false; });
+  };
+  $('b-atendido').onclick = function () {
+    if (!abierto) return;
+    api('chat/' + abierto + '/atendido', { method: 'POST', body: {} })
+      .then(function () { return cargarChat(abierto, false); }).then(cargarChats)
+      .catch(function (err) { alert(err.message); });
+  };
+
+  var texto = $('texto');
+  texto.oninput = function () { texto.style.height = 'auto'; texto.style.height = Math.min(texto.scrollHeight, 140) + 'px'; };
+  texto.onkeydown = function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(min-width:761px)').matches) { e.preventDefault(); $('escribir').requestSubmit(); }
+  };
+  $('escribir').onsubmit = function (e) {
+    e.preventDefault();
+    var t = texto.value.trim();
+    if (!t || !abierto) return;
+    var btn = $('b-enviar'); btn.disabled = true; $('enviar-err').textContent = '';
+    api('chat/' + abierto + '/enviar', { method: 'POST', body: { texto: t } })
+      .then(function () { texto.value = ''; texto.oninput(); return cargarChat(abierto, true); })
+      .then(cargarChats)
+      .catch(function (err) { $('enviar-err').textContent = err.message; })
+      .then(function () { btn.disabled = false; texto.focus(); });
+  };
+
+  if (clave) api('ver').then(iniciar).catch(function () { salir(); });
+})();
+</script>
+</body>
+</html>
