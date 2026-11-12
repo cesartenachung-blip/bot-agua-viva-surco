@@ -12,28 +12,28 @@ INSTRUCCIONES PARA EDITAR (el bot no muestra estos comentarios como respuesta):
 - Dirección: Víctor Plascencia 181, Surco (referencia: Estación Jorge Chávez).
 - Pastores de la sede: Diego y Brigitte García.
 - Sitio web: www.ccaguaviva.org
-- Redes sociales: [COMPLETAR Instagram / Facebook / YouTube]
-- Teléfono o contacto de oficina: [COMPLETAR]
-- Horario de atención de oficina: [COMPLETAR]
+- Redes sociales: https://www.facebook.com/AguaVivaSurco/, https://www.instagram.com/aguavivasurco/
+- Teléfono o contacto de oficina: +51 961871143
+- Horario de atención de oficina: Todos los días.
 
 ## Reuniones
 - Servicio Familiar: domingos 8:00 a.m., 10:00 a.m., 12:00 p.m. y 6:00 p.m.
 - NEXT (jóvenes): sábados 6:00 p.m.
 - Intercesión: sábados 6:30 a.m.
-- Duración aproximada de un servicio: [COMPLETAR]
-- ¿Se transmite en vivo? ¿Dónde?: [COMPLETAR]
+- Duración aproximada de un servicio: 1 hora y 45 minutos.
+- ¿Se transmite en vivo? ¿Dónde?: No, es presencial.
 - Código de vestimenta: no hay; puedes venir como te sientas cómodo.
 
 ## Primera visita
 - Si es tu primera vez, en el menú elige *Nuevo integrante* y deja tus datos; alguien del equipo te contactará para guiarte.
 - Al llegar: [COMPLETAR, por ejemplo: hay un equipo de bienvenida en la entrada]
 
-## Niños
-- Ministerio de niños: [COMPLETAR edades, horarios y en qué servicios hay clase para niños]
+## KIDS
+- KIDS: Edades desde los 3 años hasta las 11 años. Kids hay en todos los horarios familiares.
 
 ## Jóvenes y adolescentes
 - NEXT es la reunión de jóvenes: sábados 6:00 p.m.
-- Edades de NEXT: [COMPLETAR]
+- Edades de NEXT: Desde los 13 años hasta los 29 años.
 - Discipulados NEXT 1, 2 y 3: sábados 4:00 p.m.
 
 ## Grupos de Conexión
@@ -45,13 +45,13 @@ INSTRUCCIONES PARA EDITAR (el bot no muestra estos comentarios como respuesta):
 - Martes 8:00 p.m.: Líderes 1, 2 y 3.
 - Miércoles 8:00 p.m.: Seminario de Consejería.
 - Sábados 4:00 p.m.: Discipulados NEXT 1, 2 y 3.
-- Cómo inscribirse y requisitos: [COMPLETAR]
-- Costo: [COMPLETAR]
+- Cómo inscribirse y requisitos: https://inscripciones.ccaguaviva.org/
+- Costo: Solo discipulado 1 el costo es de S/30.00 y todos los demás cursos el costo es de S/50.00.
 
 ## Reset (retiros)
 - Reset es un encuentro / retiro de fin de semana. Información oficial: www.ccaguaviva.org/reset
 - Próximas fechas: [COMPLETAR]
-- Cómo inscribirse y costo: [COMPLETAR]
+- Cómo inscribirse y costo: El costo es S/200.00
 
 ## Bautismo
 - [COMPLETAR: requisitos, si hay clase previa, próximas fechas y cómo inscribirse]
