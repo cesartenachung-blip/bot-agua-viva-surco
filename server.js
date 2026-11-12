@@ -151,19 +151,113 @@ async function saveSession(waId, session) {
   }
 }
 
+// ==== Bandeja de mensajes (registro en Redis) ====
+// msgs:<waId>  lista con los últimos mensajes del chat (entrantes y salientes)
+// chat:<waId>  resumen del chat: nombre, último mensaje, no leídos, marca, último mensaje entrante
+// convs        chats ordenados por actividad reciente
+// pausa:<waId> si existe, el bot no responde en ese chat (un líder lo está atendiendo)
+// bandeja:ver  contador que cambia con cada mensaje (la bandeja lo consulta para refrescarse)
+const MSGS_POR_CHAT = 300;
+const PAUSA_TTL = 24 * 60 * 60;
+const VENTANA_24H = 24 * 60 * 60 * 1000;
+
+async function logMsg(waId, m, nombre) {
+  if (!redis || !waId) return;
+  const ts = Date.now();
+  try {
+    const p = redis.pipeline();
+    p.lpush(`msgs:${waId}`, { ...m, ts });
+    p.ltrim(`msgs:${waId}`, 0, MSGS_POR_CHAT - 1);
+    p.zadd('convs', { score: ts, member: String(waId) });
+    const resumen = { last: String(m.t || '').slice(0, 140), lastBy: m.by, lastTs: ts };
+    if (m.d === 'in') resumen.lastIn = ts;
+    if (nombre) resumen.name = nombre;
+    p.hset(`chat:${waId}`, resumen);
+    if (m.d === 'in') p.hincrby(`chat:${waId}`, 'unread', 1);
+    p.incr('bandeja:ver');
+    await p.exec();
+  } catch (e) {
+    console.error('Bandeja (registro):', e.message);
+  }
+}
+
+// Marca el chat para que el equipo lo atienda. 'urgente' siempre reemplaza; las demás no pisan una marca existente.
+async function flagChat(waId, tipo) {
+  if (!redis || !waId) return;
+  try {
+    if (tipo === 'urgente') await redis.hset(`chat:${waId}`, { flag: tipo });
+    else await redis.hsetnx(`chat:${waId}`, 'flag', tipo);
+    await redis.incr('bandeja:ver');
+  } catch (e) {
+    console.error('Bandeja (marca):', e.message);
+  }
+}
+
+async function isPaused(waId) {
+  if (!redis) return false;
+  try {
+    return !!(await redis.exists(`pausa:${waId}`));
+  } catch (e) {
+    return false;
+  }
+}
+
+// Texto legible de lo que envía el bot (para la bandeja)
+function describeOut(p) {
+  if (p.type === 'text') return { t: p.text.body };
+  if (p.type === 'image') return { t: p.image.caption || '', img: p.image.link };
+  if (p.type === 'interactive') {
+    const it = p.interactive;
+    const opts = it.type === 'list'
+      ? it.action.sections.flatMap((s) => s.rows.map((r) => r.title))
+      : it.action.buttons.map((b) => b.reply.title);
+    return { t: it.body.text, opts };
+  }
+  if (p.type === 'template') {
+    const param = p.template.components?.find((c) => c.type === 'body')?.parameters?.[0]?.text;
+    return { t: `Plantilla «${p.template.name}»${param ? ` (${param})` : ''}` };
+  }
+  return { t: `[${p.type}]` };
+}
+
+// Texto legible de lo que envía la persona
+function describeIn(msg) {
+  switch (msg.type) {
+    case 'text': return { t: msg.text.body };
+    case 'interactive': {
+      const r = msg.interactive?.button_reply || msg.interactive?.list_reply;
+      return { t: r ? r.title : '[Respuesta]', eligio: true };
+    }
+    case 'button': return { t: msg.button?.text || '[Botón]', eligio: true };
+    case 'image': case 'sticker': case 'video': case 'audio': case 'document': {
+      const m = msg[msg.type] || {};
+      return { t: m.caption || m.filename || '', media: m.id, mime: m.mime_type || '' };
+    }
+    case 'location': {
+      const l = msg.location || {};
+      return { t: `📍 ${l.name || l.address || 'Ubicación'}`, loc: `${l.latitude},${l.longitude}` };
+    }
+    case 'contacts': return { t: `👤 Contacto: ${msg.contacts?.[0]?.name?.formatted_name || 'compartido'}` };
+    case 'reaction': return { t: `Reaccionó ${msg.reaction?.emoji || ''}` };
+    default: return { t: '[Mensaje que la bandeja no puede mostrar]' };
+  }
+}
+
+// Todos los envíos a WhatsApp pasan por aquí y quedan registrados en la bandeja
+async function graphPost(payload, by = 'bot') {
+  await axios.post(GRAPH_URL, payload, { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } });
+  if (by) await logMsg(payload.to, { d: 'out', by, k: payload.type, ...describeOut(payload) });
+}
+
 // ==== Envío de mensajes de texto simple ====
-async function sendText(to, body) {
-  await axios.post(
-    GRAPH_URL,
-    { messaging_product: 'whatsapp', to, type: 'text', text: { body } },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-  );
+// by: 'bot' | 'lider' | null (null = aviso interno al admin, no se guarda en la bandeja)
+async function sendText(to, body, by = 'bot') {
+  await graphPost({ messaging_product: 'whatsapp', to, type: 'text', text: { body } }, by);
 }
 
 // ==== Menú principal (lista) ====
 async function sendMainMenu(to, bodyText) {
-  await axios.post(
-    GRAPH_URL,
+  await graphPost(
     {
       messaging_product: 'whatsapp',
       to,
@@ -176,15 +270,13 @@ async function sendMainMenu(to, bodyText) {
           sections: [{ title: 'Agua Viva Surco', rows: menuRows }],
         },
       },
-    },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    }
   );
 }
 
 // ==== Submenú de Reuniones (botones) ====
 async function sendReunionesMenu(to) {
-  await axios.post(
-    GRAPH_URL,
+  await graphPost(
     {
       messaging_product: 'whatsapp',
       to,
@@ -200,15 +292,13 @@ async function sendReunionesMenu(to) {
           ],
         },
       },
-    },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    }
   );
 }
 
 // ==== Botones Sí / No (Grupo de conexión) ====
 async function sendYesNo(to, bodyText) {
-  await axios.post(
-    GRAPH_URL,
+  await graphPost(
     {
       messaging_product: 'whatsapp',
       to,
@@ -223,15 +313,13 @@ async function sendYesNo(to, bodyText) {
           ],
         },
       },
-    },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    }
   );
 }
 
 // ==== Botones de navegación: Menú anterior / Finalizar ====
 async function sendNav(to, backId) {
-  await axios.post(
-    GRAPH_URL,
+  await graphPost(
     {
       messaging_product: 'whatsapp',
       to,
@@ -246,8 +334,7 @@ async function sendNav(to, backId) {
           ],
         },
       },
-    },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    }
   );
 }
 
@@ -270,10 +357,8 @@ async function imageOk(link) {
 
 async function sendImage(to, link, caption) {
   if (!(await imageOk(link))) throw new Error(`Imagen no disponible: ${link}`);
-  await axios.post(
-    GRAPH_URL,
-    { messaging_product: 'whatsapp', to, type: 'image', image: caption ? { link, caption } : { link } },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+  await graphPost(
+    { messaging_product: 'whatsapp', to, type: 'image', image: caption ? { link, caption } : { link } }
   );
 }
 
@@ -295,10 +380,12 @@ async function sendAnswer(to, key) {
 
 // ==== Notificación al equipo cuando alguien deja sus datos ====
 async function notifyAdmin(titulo, nombre, celular, distrito, waId) {
+  await flagChat(waId, 'registro');
   if (!ADMIN_PHONE) return;
   await sendText(
     ADMIN_PHONE,
-    `📋 *${titulo}*\nNombre: ${nombre}\nCelular: ${celular}\nDistrito: ${distrito}\nWhatsApp: ${waId}`
+    `📋 *${titulo}*\nNombre: ${nombre}\nCelular: ${celular}\nDistrito: ${distrito}\nWhatsApp: ${waId}`,
+    null
   ).catch((e) => console.error('No se pudo notificar al admin:', e.response?.data || e.message));
 }
 
@@ -431,8 +518,9 @@ async function processMessage(waId, text, interactiveId, session) {
 
   if (key === 'baja') {
     await sendText(waId, '✅ Listo. No volverás a recibir anuncios nuestros. Si cambias de opinión, escribe *Hola*.');
+    await flagChat(waId, 'baja');
     if (ADMIN_PHONE) {
-      await sendText(ADMIN_PHONE, `🚫 *Solicitud de baja de anuncios*\nWhatsApp: ${waId}\nQuítalo de tu lista de envío.`).catch((e) =>
+      await sendText(ADMIN_PHONE, `🚫 *Solicitud de baja de anuncios*\nWhatsApp: ${waId}\nQuítalo de tu lista de envío.`, null).catch((e) =>
         console.error('No se pudo notificar la baja:', e.response?.data || e.message)
       );
     }
@@ -491,11 +579,12 @@ async function overDailyLimit(waId) {
 }
 
 async function notifyLeader(waId, val, urgente) {
+  await flagChat(waId, urgente ? 'urgente' : 'consulta');
   if (!ADMIN_PHONE) return;
   const msg = urgente
     ? `🚨 *ATENCIÓN PASTORAL URGENTE*\nUna persona escribió algo que requiere contacto inmediato.\nWhatsApp: ${waId}\nMensaje: "${val}"`
     : `❓ *Consulta para un líder*\nEl bot no tenía la respuesta.\nWhatsApp: ${waId}\nMensaje: "${val}"`;
-  await sendText(ADMIN_PHONE, msg).catch((e) => console.error('No se pudo notificar al líder:', e.response?.data || e.message));
+  await sendText(ADMIN_PHONE, msg, null).catch((e) => console.error('No se pudo notificar al líder:', e.response?.data || e.message));
 }
 
 async function answerWithAI(waId, val, session) {
@@ -562,10 +651,9 @@ async function sendTemplate(to, name, lang, param, imageUrl) {
   if (imageUrl) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: imageUrl } }] });
   if (param) components.push({ type: 'body', parameters: [{ type: 'text', text: param }] });
   if (components.length) template.components = components;
-  await axios.post(
-    GRAPH_URL,
+  await graphPost(
     { messaging_product: 'whatsapp', to, type: 'template', template },
-    { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    'anuncio'
   );
 }
 
@@ -612,6 +700,7 @@ button:disabled{opacity:.5} pre{white-space:pre-wrap;background:#f4f4f4;padding:
 .nota{color:#666;font-size:.85rem}
 </style></head><body>
 <h1>Envío de anuncios</h1>
+<p class="nota"><a href="/bandeja">Ir a la bandeja de mensajes</a></p>
 <p class="nota">Solo para personas que aceptaron recibir mensajes de la iglesia. La plantilla debe estar aprobada en Meta.</p>
 <label for="pw">Contraseña</label><input type="password" id="pw" autocomplete="current-password">
 <label for="tpl">Nombre de la plantilla</label><input type="text" id="tpl" placeholder="invitacion_reset_octubre">
@@ -679,6 +768,135 @@ app.post('/admin/send', async (req, res) => {
   res.json({ total: parsed.contacts.length, sent, skipped: parsed.skipped, failed });
 });
 
+// ==== Bandeja de mensajes (portal para el equipo) ====
+app.get('/bandeja', (req, res) => res.sendFile(path.join(__dirname, 'public', 'bandeja.html')));
+
+function bandejaAuth(req, res, next) {
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Falta configurar ADMIN_PASSWORD en Vercel.' });
+  if (!redis) return res.status(503).json({ error: 'Falta conectar Upstash Redis en Vercel.' });
+  let clave = '';
+  try { clave = decodeURIComponent(req.get('x-clave') || ''); } catch (e) { clave = ''; }
+  if (!checkPassword(clave)) return res.status(401).json({ error: 'Contraseña incorrecta.' });
+  res.set('Cache-Control', 'no-store');
+  next();
+}
+
+function waParam(req, res) {
+  const wa = String(req.params.wa || '');
+  if (!/^\d{8,15}$/.test(wa)) { res.status(400).json({ error: 'Número no válido.' }); return null; }
+  return wa;
+}
+
+// Versión: cambia con cada mensaje; la bandeja solo recarga cuando cambia
+app.get('/bandeja/api/ver', bandejaAuth, async (req, res) => {
+  res.json({ ver: Number(await redis.get('bandeja:ver')) || 0 });
+});
+
+app.get('/bandeja/api/chats', bandejaAuth, async (req, res) => {
+  try {
+    const ids = (await redis.zrange('convs', 0, 99, { rev: true })).map(String);
+    if (!ids.length) return res.json({ chats: [] });
+    const p = redis.pipeline();
+    ids.forEach((id) => { p.hgetall(`chat:${id}`); p.exists(`pausa:${id}`); });
+    const r = await p.exec();
+    const chats = ids.map((wa, i) => {
+      const c = r[i * 2] || {};
+      return {
+        wa,
+        name: c.name != null ? String(c.name) : '',
+        last: c.last != null ? String(c.last) : '',
+        lastBy: c.lastBy || '',
+        lastTs: Number(c.lastTs) || 0,
+        lastIn: Number(c.lastIn) || 0,
+        unread: Number(c.unread) || 0,
+        flag: c.flag || '',
+        paused: !!r[i * 2 + 1],
+      };
+    });
+    res.json({ chats });
+  } catch (e) {
+    console.error('Bandeja chats:', e.message);
+    res.status(500).json({ error: 'No se pudo leer la bandeja.' });
+  }
+});
+
+app.get('/bandeja/api/chat/:wa', bandejaAuth, async (req, res) => {
+  const wa = waParam(req, res); if (!wa) return;
+  try {
+    const p = redis.pipeline();
+    p.lrange(`msgs:${wa}`, 0, MSGS_POR_CHAT - 1);
+    p.hgetall(`chat:${wa}`);
+    p.ttl(`pausa:${wa}`);
+    p.hset(`chat:${wa}`, { unread: 0 });
+    const [msgs, c, ttl] = await p.exec();
+    const info = c || {};
+    res.json({
+      msgs: (msgs || []).map((m) => (typeof m === 'string' ? JSON.parse(m) : m)).reverse(),
+      name: info.name != null ? String(info.name) : '',
+      lastIn: Number(info.lastIn) || 0,
+      flag: info.flag || '',
+      pausaHasta: ttl > 0 ? Date.now() + ttl * 1000 : 0,
+    });
+  } catch (e) {
+    console.error('Bandeja chat:', e.message);
+    res.status(500).json({ error: 'No se pudo abrir el chat.' });
+  }
+});
+
+app.post('/bandeja/api/chat/:wa/enviar', bandejaAuth, async (req, res) => {
+  const wa = waParam(req, res); if (!wa) return;
+  const texto = String(req.body?.texto || '').trim();
+  if (!texto) return res.status(400).json({ error: 'Escribe un mensaje.' });
+  if (texto.length > 4000) return res.status(400).json({ error: 'El mensaje es demasiado largo (máximo 4000 caracteres).' });
+  const lastIn = Number(await redis.hget(`chat:${wa}`, 'lastIn')) || 0;
+  if (Date.now() - lastIn > VENTANA_24H) {
+    return res.status(400).json({ error: 'Pasaron más de 24 horas desde su último mensaje. WhatsApp solo permite escribirle con una plantilla aprobada (desde /admin).' });
+  }
+  try {
+    await sendText(wa, texto, 'lider');
+    const p = redis.pipeline();
+    p.set(`pausa:${wa}`, 1, { ex: PAUSA_TTL }); // el líder tomó la conversación: el bot se pausa 24 h
+    p.hdel(`chat:${wa}`, 'flag');
+    p.incr('bandeja:ver');
+    await p.exec();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: 'WhatsApp rechazó el envío: ' + (e.response?.data?.error?.message || e.message) });
+  }
+});
+
+app.post('/bandeja/api/chat/:wa/bot', bandejaAuth, async (req, res) => {
+  const wa = waParam(req, res); if (!wa) return;
+  const activo = !!req.body?.activo;
+  if (activo) await redis.del(`pausa:${wa}`);
+  else await redis.set(`pausa:${wa}`, 1, { ex: PAUSA_TTL });
+  await redis.incr('bandeja:ver');
+  res.json({ ok: true });
+});
+
+app.post('/bandeja/api/chat/:wa/atendido', bandejaAuth, async (req, res) => {
+  const wa = waParam(req, res); if (!wa) return;
+  await redis.hdel(`chat:${wa}`, 'flag');
+  await redis.incr('bandeja:ver');
+  res.json({ ok: true });
+});
+
+// Fotos, audios y documentos que envían las personas (se descargan de Meta con el token del bot)
+app.get('/bandeja/api/media/:id', bandejaAuth, async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Archivo no válido.' });
+  try {
+    const auth = { Authorization: `Bearer ${WHATSAPP_TOKEN}` };
+    const meta = await axios.get(`https://graph.facebook.com/v21.0/${id}`, { headers: auth, timeout: 10000 });
+    const file = await axios.get(meta.data.url, { headers: auth, responseType: 'arraybuffer', timeout: 20000 });
+    res.set('Content-Type', meta.data.mime_type || 'application/octet-stream');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(Buffer.from(file.data));
+  } catch (e) {
+    res.status(404).json({ error: 'El archivo ya no está disponible en WhatsApp.' });
+  }
+});
+
 // ==== Verificación del Webhook ====
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -702,6 +920,11 @@ app.post('/webhook', async (req, res) => {
     if (!message) return res.sendStatus(200);
 
     const waId = message.from;
+    const nombre = value.contacts?.[0]?.profile?.name;
+    await logMsg(waId, { d: 'in', by: 'user', k: message.type, ...describeIn(message) }, nombre);
+
+    // Si un líder está atendiendo este chat desde la bandeja, el bot no responde
+    if (await isPaused(waId)) return res.sendStatus(200);
 
     if (message.type === 'text') {
       await handleMessage(waId, message.text.body, null);
