@@ -378,6 +378,53 @@ async function sendAnswer(to, key) {
   if (backTarget[key]) await sendNav(to, backTarget[key]);
 }
 
+
+// ==== Consultas por DNI/CE (Supabase) ====
+// Preguntas como "¿cuál es mi código?", "¿en qué curso estoy?", "¿tiene reset?"
+// Si faltan las variables de Supabase, el bot sigue funcionando sin esta opción.
+let db = null;
+let detectarIntencion = () => null;
+try {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    db = require('./lib/db');
+    ({ detectarIntencion } = require('./lib/consulta'));
+  } else {
+    console.warn('Consultas DNI/CE desactivadas: faltan SUPABASE_URL o SUPABASE_SERVICE_KEY');
+  }
+} catch (e) {
+  console.error('No se pudo cargar Supabase:', e.message);
+}
+
+const PEDIR_DOC = 'Con gusto te ayudo 🙌\nPor favor ingresa tu *DNI* o *Carné de Extranjería (CE)*:';
+
+function limpiarDocumento(texto) {
+  const d = String(texto || '').replace(/[\s.\-]/g, '').toUpperCase();
+  return /^\d{8}$/.test(d) || /^[A-Z0-9]{9,12}$/.test(d) ? d : null;
+}
+
+function fmtFechaLarga(f) {
+  return new Date(f + 'T12:00:00').toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function respuestaConsulta(intencion, f) {
+  const nombre = `*${f.nombres}*`;
+  if (intencion === 'CODIGO') {
+    return `🔑 El código de ${nombre} es *${f.codigo}*.\n` +
+      (f.lider_grupo
+        ? `👥 Su líder es *${f.lider_grupo}* (Grupo ${f.codigo_grupo}).`
+        : '👥 Aún no tiene un líder de Grupo de Conexión asignado.');
+  }
+  if (intencion === 'CURSO') {
+    if (!f.curso_edl) return `🎓 ${nombre} no tiene inscripción registrada en Escuela de Líderes.`;
+    return `🎓 ${nombre} está inscrito(a) en el curso *${f.curso_edl}*` +
+      (f.horario_edl ? ` en el horario *${f.horario_edl}*` : '') + ` (ciclo ${f.ciclo_edl}).`;
+  }
+  if (!f.ultima_fecha) return `🔥 ${nombre} no tiene Reset registrado.`;
+  const tipo = f.ultimo_tipo === 'RECARGA' ? 'Recarga' : 'Reset';
+  return `🔥 ${nombre} sí tiene Reset.\n🔁 Su último fue *${tipo}* el *${fmtFechaLarga(f.ultima_fecha)}*` +
+    (f.ultima_edicion ? ` (${f.ultima_edicion}).` : '.');
+}
+
 // ==== Notificación al equipo cuando alguien deja sus datos ====
 async function notifyAdmin(titulo, nombre, celular, distrito, waId) {
   await flagChat(waId, 'registro');
@@ -452,6 +499,51 @@ async function processMessage(waId, text, interactiveId, session) {
   if (interactiveId && answers[interactiveId]) {
     await sendAnswer(waId, interactiveId);
     return;
+  }
+
+  // --- Consultas por DNI/CE: nueva pregunta ---
+  const intencion = db && val ? detectarIntencion(val) : null;
+  if (intencion) {
+    session.flow = `consulta_${intencion}`;
+    session.tempName = '';
+    session.tempPhone = '';
+    await sendText(waId, PEDIR_DOC);
+    return;
+  }
+
+  // --- Consultas por DNI/CE: esperando el documento ---
+  if (session.flow && session.flow.startsWith('consulta_')) {
+    const tipoConsulta = session.flow.replace('consulta_', '');
+    if (/^(cancelar|salir|men[uú])$/i.test(val)) {
+      session.flow = null;
+      await sendMainMenu(waId, 'Elige una opción:');
+      return;
+    }
+    const documento = limpiarDocumento(val);
+    if (!documento) {
+      if (val.split(/\s+/).length > 3) {
+        session.flow = null; // cambió de tema: sigue el flujo normal
+      } else {
+        await sendText(waId, 'El DNI tiene 8 dígitos y el CE hasta 12 caracteres. Inténtalo de nuevo o escribe *cancelar*.');
+        return;
+      }
+    } else {
+      session.flow = null;
+      try {
+        const ficha = await db.fichaPorDocumento(documento);
+        await sendText(
+          waId,
+          ficha
+            ? respuestaConsulta(tipoConsulta, ficha)
+            : `No encontré el documento *${documento}* en nuestros registros 🙏\nVerifica el número o escribe *menú* para ver otras opciones.`
+        );
+      } catch (e) {
+        console.error('Consulta Supabase:', e.message);
+        await sendText(waId, 'No pude hacer la consulta en este momento 🙏 Inténtalo nuevamente en unos minutos.');
+      }
+      await sendNav(waId, 'volver_main');
+      return;
+    }
   }
 
   // --- Flujo: Nuevo integrante ---
