@@ -425,15 +425,70 @@ function respuestaConsulta(intencion, f) {
     (f.ultima_edicion ? ` (${f.ultima_edicion}).` : '.');
 }
 
+// ==== Avisos al equipo (ADMIN_PHONE) ====
+// WhatsApp solo entrega texto libre si el admin le escribió al bot en las últimas 24 h.
+// Si no, se usa la plantilla aprobada "aviso_registro":
+//   Tienes una nueva solicitud asignada del formulario {{1}}. Datos registrados:
+//   nombre {{2}}, celular {{3}}, distrito {{4}}. ...
+const AVISO_TEMPLATE = process.env.AVISO_TEMPLATE || 'aviso_registro';
+const AVISO_LANG = process.env.AVISO_LANG || 'es_PE';
+
+async function adminVentanaAbierta() {
+  if (!redis) return false;
+  try {
+    const lastIn = Number(await redis.hget(`chat:${ADMIN_PHONE}`, 'lastIn')) || 0;
+    return Date.now() - lastIn < 23.5 * 60 * 60 * 1000; // margen de 30 min
+  } catch (e) {
+    return false;
+  }
+}
+
+// Meta no acepta variables vacías, con saltos de línea ni más de 4 espacios seguidos
+function varPlantilla(v) {
+  const t = String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return (t || '—').slice(0, 200);
+}
+
+async function avisarAdmin(textoLibre, datos) {
+  if (!ADMIN_PHONE) return;
+  try {
+    if (await adminVentanaAbierta()) {
+      await sendText(ADMIN_PHONE, textoLibre, null);
+    } else {
+      const parameters = [datos.formulario, datos.nombre, datos.celular, datos.distrito]
+        .map((v) => ({ type: 'text', text: varPlantilla(v) }));
+      await graphPost(
+        {
+          messaging_product: 'whatsapp',
+          to: ADMIN_PHONE,
+          type: 'template',
+          template: { name: AVISO_TEMPLATE, language: { code: AVISO_LANG }, components: [{ type: 'body', parameters }] },
+        },
+        null
+      );
+    }
+  } catch (e) {
+    console.error('No se pudo avisar al admin:', e.response?.data || e.message);
+  }
+}
+
+async function nombreDe(waId) {
+  if (!redis) return '';
+  try {
+    const n = await redis.hget(`chat:${waId}`, 'name');
+    return n == null ? '' : String(n);
+  } catch (e) {
+    return '';
+  }
+}
+
 // ==== Notificación al equipo cuando alguien deja sus datos ====
 async function notifyAdmin(titulo, nombre, celular, distrito, waId) {
   await flagChat(waId, 'registro');
-  if (!ADMIN_PHONE) return;
-  await sendText(
-    ADMIN_PHONE,
+  await avisarAdmin(
     `📋 *${titulo}*\nNombre: ${nombre}\nCelular: ${celular}\nDistrito: ${distrito}\nWhatsApp: ${waId}`,
-    null
-  ).catch((e) => console.error('No se pudo notificar al admin:', e.response?.data || e.message));
+    { formulario: titulo, nombre, celular: `${celular} (WhatsApp ${waId})`, distrito }
+  );
 }
 
 // ==== Lógica principal ====
@@ -611,11 +666,10 @@ async function processMessage(waId, text, interactiveId, session) {
   if (key === 'baja') {
     await sendText(waId, '✅ Listo. No volverás a recibir anuncios nuestros. Si cambias de opinión, escribe *Hola*.');
     await flagChat(waId, 'baja');
-    if (ADMIN_PHONE) {
-      await sendText(ADMIN_PHONE, `🚫 *Solicitud de baja de anuncios*\nWhatsApp: ${waId}\nQuítalo de tu lista de envío.`, null).catch((e) =>
-        console.error('No se pudo notificar la baja:', e.response?.data || e.message)
-      );
-    }
+    await avisarAdmin(
+      `🚫 *Solicitud de baja de anuncios*\nWhatsApp: ${waId}\nQuítalo de tu lista de envío.`,
+      { formulario: 'Baja de anuncios (quitar de la lista de envío)', nombre: await nombreDe(waId), celular: waId, distrito: '—' }
+    );
     return;
   }
   if (key === 'saludo') {
@@ -672,11 +726,15 @@ async function overDailyLimit(waId) {
 
 async function notifyLeader(waId, val, urgente) {
   await flagChat(waId, urgente ? 'urgente' : 'consulta');
-  if (!ADMIN_PHONE) return;
   const msg = urgente
     ? `🚨 *ATENCIÓN PASTORAL URGENTE*\nUna persona escribió algo que requiere contacto inmediato.\nWhatsApp: ${waId}\nMensaje: "${val}"`
     : `❓ *Consulta para un líder*\nEl bot no tenía la respuesta.\nWhatsApp: ${waId}\nMensaje: "${val}"`;
-  await sendText(ADMIN_PHONE, msg, null).catch((e) => console.error('No se pudo notificar al líder:', e.response?.data || e.message));
+  await avisarAdmin(msg, {
+    formulario: urgente ? 'ATENCIÓN PASTORAL URGENTE (revisa la bandeja)' : 'Consulta para un líder (revisa la bandeja)',
+    nombre: await nombreDe(waId),
+    celular: waId,
+    distrito: '—',
+  });
 }
 
 async function answerWithAI(waId, val, session) {
